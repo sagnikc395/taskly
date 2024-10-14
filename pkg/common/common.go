@@ -1,10 +1,13 @@
 package common
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"time"
+
+	"github.com/jackc/pgx/v4/pgxpool"
 )
 
 const (
@@ -45,4 +48,29 @@ func GetDBConnection() string {
 	}
 
 	return fmt.Sprintf("postgres://%s:%s@%s:5432/%s", dbUser, dbPassword, dbHost, dbName)
+}
+
+//actural driver to connect to db , with the given heartbeat time
+// to the Postgres pool
+
+func ConnectToDB(ctx context.Context, dbConnString string) (*pgxpool.Pool, error) {
+	var dbPool *pgxpool.Pool
+	var err error
+	retryCount := 0
+	for retryCount < 10 {
+		dbPool, err = pgxpool.Connect(ctx, dbConnString)
+		if err == nil {
+			break
+		}
+		log.Printf("Failed to connect to the database. Retrying in 5 seconds...")
+		time.Sleep(5 * time.Second)
+		retryCount++
+	}
+	if err != nil {
+		log.Printf("Ran out of retries to connect to db (5)")
+		return nil, err
+	}
+
+	log.Printf("Connected to db")
+	return dbPool, nil
 }
