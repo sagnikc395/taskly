@@ -2,8 +2,11 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v4/pgxpool"
@@ -21,7 +24,7 @@ type CommandRequest struct {
 type Task struct {
 	Id          string
 	Command     string
-	ScheduledAT pgtype.Timestamp
+	ScheduledAt pgtype.Timestamp
 	PickedAt    pgtype.Timestamp
 	StartedAt   pgtype.Timestamp
 	CompletedAt pgtype.Timestamp
@@ -74,4 +77,64 @@ func (s *SchedulerServer) Start() error {
 	}()
 
 	return s.awaitShutDown()
+}
+
+// POST handler to add new tasks
+func (s *SchedulerServer) handleScheduleTask(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "POST method only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	//JSON decode
+	var commandReq CommandRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&commandReq); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	//log
+	log.Printf("Received Schedule request: %+v", commandReq)
+
+	// Parse the scheduled_at time
+	scheduledTime, err := time.Parse(time.RFC3339, commandReq.ScheduledAt)
+	if err != nil {
+		http.Error(w, "Invalid date format. Use ISO 8601 format.", http.StatusBadRequest)
+		return
+	}
+
+	//  scheduled time to Unix timestamp
+	unixTimestamp := time.Unix(scheduledTime.Unix(), 0)
+
+	taskId, err := s.insertTaskIntoDB(context.Background(),
+		Task{
+			Command:     commandReq.Command,
+			ScheduledAt: pgtype.Timestamp{Time: unixTimestamp},
+		})
+
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to submit task. Error : %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	//respond with the parsed data
+	response := struct {
+		Command     string `json:"command"`
+		ScheduledAt int64  `json:"scheduled_at"`
+		TaskID      string `json:"task_id"`
+	}{
+		Command:     commandReq.Command,
+		ScheduledAt: scheduledTime.Unix(),
+		TaskID:      taskId,
+	}
+
+	jsonResponse, err := json.Marshal(response)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(jsonResponse)
 }
