@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -60,5 +61,20 @@ func NewServer(port string, dbConnString string) *CoordinatorServer {
 
 // initaite the servers operations
 func (s *CoordinatorServer) Start() error {
+	var err error
+	go s.manageWorkerPool()
+
+	if err := s.startGRPCServer(); err != nil {
+		return fmt.Errorf("gRPC server start failed: %v", err)
+	}
+
+	s.dbPool, err = common.ConnectToDB(s.ctx, s.dbConnectionString)
+	if err != nil {
+		return err
+	}
+
+	go s.scanDatabase()
+
+	return s.awaitShutDown()
 
 }
