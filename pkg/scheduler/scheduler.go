@@ -138,3 +138,84 @@ func (s *SchedulerServer) handleScheduleTask(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(jsonResponse)
 }
+
+func (s *SchedulerServer) handleGetTaskStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	//task id from the query parameters
+	taskId := r.URL.Query().Get("task_id")
+
+	//check if the task id is empty
+
+	if taskId == "" {
+		http.Error(w, "Task ID is required", http.StatusBadRequest)
+		return
+	}
+
+	//query the db to get the task status
+
+	var task Task
+	err := s.dbPool.QueryRow(context.Background(), "SELECT * FROM tasks where ID = $1", taskId).Scan(
+		&task.Id,
+		&task.Command,
+		&task.ScheduledAt,
+		&task.PickedAt,
+		&task.StartedAt,
+		&task.CompletedAt,
+		&task.FailedAt,
+	)
+
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get task status. Error : %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	//prepare response JSON
+	response := struct {
+		TaskID      string `json:"task_id"`
+		Command     string `json:"command"`
+		ScheduledAt string `json:"scheduled_at,omitempty"`
+		PickedAt    string `json:"picked_at,omitempty"`
+		StartedAt   string `json:"started_at,omitempty"`
+		CompletedAt string `json:"completed_at,omitempty"`
+		FailedAt    string `json:"failed_at,omitempty"`
+	}{
+		TaskID:      task.Id,
+		Command:     task.Command,
+		ScheduledAt: "",
+		PickedAt:    "",
+		StartedAt:   "",
+		CompletedAt: "",
+		FailedAt:    "",
+	}
+
+	//set the scheduled_at time if non-null
+	if task.ScheduledAt.Status == 2 {
+		response.ScheduledAt = task.ScheduledAt.Time.String()
+	}
+
+	// set the picked_at time if not_null
+	if task.PickedAt.Status == 2 {
+		response.PickedAt = task.PickedAt.Time.String()
+	}
+
+	//set the started_at time if non-null
+	if task.CompletedAt.Status == 2 {
+		response.FailedAt = task.FailedAt.Time.String()
+	}
+
+	//convert the response struct to JSON
+	jsonResponse, err := json.Marshal(response)
+	if err != nil {
+		http.Error(w, "Failed to marshal JSON response", http.StatusInternalServerError)
+		return
+	}
+
+	//set the header and send response
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(jsonResponse)
+
+}
