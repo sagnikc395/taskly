@@ -67,14 +67,10 @@ func (s *CoordinatorServer) Start() error {
 	if err := s.startGRPCServer(); err != nil {
 		return fmt.Errorf("gRPC server start failed: %v", err)
 	}
-
 	s.dbPool, err = common.ConnectToDB(s.ctx, s.dbConnectionString)
 	if err != nil {
 		return err
 	}
-
 	go s.scanDatabase()
-
 	return s.awaitShutDown()
-
 }
