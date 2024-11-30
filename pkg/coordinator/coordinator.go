@@ -3,8 +3,12 @@ package coordinator
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v4/pgxpool"
@@ -74,3 +78,34 @@ func (s *CoordinatorServer) Start() error {
 	go s.scanDatabase()
 	return s.awaitShutDown()
 }
+
+func (s *CoordinatorServer) startGRPCServer() error {
+	var err error
+	s.listener, err = net.Listen("tcp", s.serverPort)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("Starting gRPC server on %s\n", s.serverPort)
+
+	s.grpcServer = grpc.NewServer()
+	pb.RegisterCoordinatorServiceServer(s.grpcServer, s)
+	go func() {
+		if err := s.grpcServer.Serve(s.listener); err != nil {
+			log.Fatalf("gRPC server failed: %v", err)
+		}
+	}()
+
+	return nil
+}
+
+func (s *CoordinatorServer) awaitShutdown() error {
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	<-stop
+
+	return s.Stop()
+}
+
+//gracefully shuts down the server 
+
